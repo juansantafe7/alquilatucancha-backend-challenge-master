@@ -1,111 +1,62 @@
-## Intro
+IMPORTANTE:
+En caso que haya algún problema relacionado con los archivos (ya sea del back o del front del proyecto), la versión original se encuentra en mi drive:
+https://drive.google.com/file/d/1xtfsFNyNm0WEPNioV8qGVzF1hggvTQlY/view?usp=sharing
 
-Bienvenido/a al desafío técnico de AlquilaTuCancha. Este proyecto simula un servicio de búsqueda de disponibilidad de canchas,
-el cuál está tardando mucho y no tolera gran cantidad de solicitudes por minuto. 
+Para acceder a los archivos del front se tiene que acceder a este repositorio:
+https://github.com/juansantafe7/alquilatucancha-backend-challenge-master-frontIntegration
 
-El objetivo de este desafío es optimizar el servicio para que responda lo más rápido posible, con información actualizada
-y que soporte altos niveles de tráfico.
+Intro
 
-## El proyecto
+Para el proyecto utilicé una virtual machine con sistema operativo Linux
+Instalé docker y yarn y todas las dependencias necesarias para que el programa funcione correctamente y se visualice en localhost:3000
+Agregué un front utilizando React, el cual está integrado con el back y funciona en el puerto 3002. Para ello tuve que eliminar restricciones CORS
 
-El servicio de disponibilidad devuelve, a partir de un [Place Id](https://developers.google.com/maps/documentation/places/web-service/place-id) y fecha, todos los clubes de la zona, con sus respectivos atributos, canchas y disponibilidad. Ejemplos de respuestas se encuentran dentro de `mock/data/`.
+Optimizaciones del proyecto:
 
-El proyecto consta de dos partes
+En cuanto a las optimizaciones realizadas puedo mencionar:
 
-1. La API principal, sobre la que hay que trabajar y que está desarrollada en [NestJS](https://github.com/nestjs/nest) adaptada a una Arquitectura Hexagonal.
-2. Una API mock, desarrollada en JS vanilla y que **no** debe ser modificada
+1. Implementación de un sistema de caching.
+Se busca con esto minimizar las solicitudes a la API.
+Para este fin se instaló la librería de node cache: npm install node-cache
+Se modificó el archivo http-alquila-tu-cancha.client.ts para que tenga la siguiente lógica:
+![image](https://github.com/user-attachments/assets/3677749f-391c-493d-9a70-1646ddf2bc76)
+![{01008BE0-51E0-41E4-8924-68CF88DEB177}](https://github.com/user-attachments/assets/3dc1163e-b8a1-460e-8ba3-25437852157a)
 
-La API mock es la fuente de verdad y a su vez nuestro cuello de botella. Los endpoints que expone son
+2. invalidez selectiva del cache y procesamiento asincrónico
+Se añadió un servicio (CacheService) para manejar la invalidación de caché.
+Se creó un mecanismo para identificar de manera dinámica qué clave de caché se debe invalidar, dependiendo del tipo de evento recibido.
+![{F63E5714-4BA8-48EF-A3BD-5759CEB636EB}](https://github.com/user-attachments/assets/8730f811-092d-433d-bca9-426289aa3e2d)
 
-- `GET /zones`: Lista todas las zones donde tenemos clubes
-- `GET /clubs?placeId`: Lista los clubes por zona
-- `GET /clubs/:id`: Detalla un club
-- `GET /clubs/:id/courts`: Lista las canchas de un club
-- `GET /clubs/:id/courts/:id`: Detalla una cancha de un club
-- `GET /clubs/:id/courts/:id/slots?date`: Lista la disponibilidad una cancha para una fecha en particular
+3. Implementación de llamadas paralelas
+En lugar de usar un bucle for secuencial, utilicé Promise.all para ejecutar múltiples solicitudes de manera simultánea. 
+Esto se aplica tanto al nivel de los clubes (clubs.map) como al nivel de las canchas (courts.map). 
+a. Cada club se procesa en paralelo. 
+b. Dentro de cada club, las canchas también se procesan en paralelo 
+Se modifico el archivo get-availability.handler.ts
+![{D2223C26-F253-4C2F-B051-A98DA02863AE}](https://github.com/user-attachments/assets/1b006381-ca4e-4b4a-b51f-810b392f91fb)
 
-> Estos endpoints tienen un latencia alta y la API en general tiene un límite de 60 solicitudes por minuto.
+4.  Batch Requests (Agrupación de solicitudes)
+Se agregó solicitudes en lotes cuando se requiere consultar múltiples recursos (por ejemplo, canchas o slots). Esto reduce 
+el número de llamadas a la API mock y mejorará el rendimiento.
 
+5. Configuración de TTL dinámico
+Con la finalidad reducir la latencia y sobrecarga y optimizar el uso de memoria
+![{CFEB80F9-26DD-4CE8-BFEF-642995D9C37A}](https://github.com/user-attachments/assets/ac7e58f6-b18d-4d4c-8e9b-bda3d5006476)
+![{336D7326-5A3B-4966-8E41-83DBF380186E}](https://github.com/user-attachments/assets/017d1b2b-3357-49ab-9106-3b15947d0273)
 
-A su vez, la API mock tiene la capacidad de avisar a la API principal cada vez que ocurren modificaciones. Los eventos posibles son los siguientes
+6. Optimización con stream
+Se agregó método @Get('large-data') al events.controller.ts , con el fin de enviar datos grandes mediante streams
+![{78A259BB-DA5B-4BB1-9A56-E6897EF4B95C}](https://github.com/user-attachments/assets/c50738b4-ae14-45d6-ba48-e3e7c4945f9f)
 
-- Se ocupa un lugar (`booking_created`)
-- Se libera un lugar (`booking_cancelled`)
-- Se actualiza un club (`club_updated`)
-- Se actualiza una cancha (`court_updated`)
+7. Pool de conexiones para limitar el número de solicitudes permitidas
+Utilizamos la librería p-limit mediante el siguiente comando: npm install p-limit 
 
-En algunos casos, estos eventos modifican la disponibilidad de la cancha.
-Por ejemplo, cuando se ocupa un lugar en la cancha 140 el 25 de Agosto a las 10:30, la disponibilidad para esa fecha debe ser actualizada.
-Lo mismo ocurre cuando se libera un lugar.
-
-En otros casos, los eventos no modifican las disponibilidad de la cancha, pero sí la información estática. Por ejemplo, si se cambia el nombre
-de la cancha 140, el servicio debe reflejar el nuevo nombre
-
-**Atención**: cuando se actualiza un club, dependiendo de los atributos a actualizar, puede que modifique o no la disponibilidad. Hay un atributo
-especial llamado `open_hours` que refleja el horario de apertura y cierre de los complejos según el día de la semana, si este cambia, puede afectar la disponibilidad. El resto de los atributos no modifican la disponibilidad
-
-
-> Un evento al azar ocurre cada 10 segundos. Durante el desarrollo se puede modificar el intervalo a gusto a través de la variable
-> de entorno `EVENT_INTERVAL_SECONDS`, pero la solución debe funcionar independientemente del valor
-
-## Resolviendo el challenge
-
-### Correr el proyecto
-
-Clonar el repositorio e instalar las dependencias con
-
-```bash
-$ yarn
-```
-
-El proyecto se puede levantar con `docker-compose` o desde el host como lo indica la documentación de [NestJS](https://docs.nestjs.com/).
-Nota: Si se corre desde el host también hay que correr en paralelo la API mock.
-
-La versión de node utilizada se encuentra definida en el `package.json` y en `.nvmrc` en caso de que uses `nvm`.
-
-### Modificar
-
-Los puntos de entrada y salida de la API ya están desarrollados, aunque se espera que se le hagan modificaciones
-
-1. `AlquilaTuCanchaClient`: donde se hace la comunicación desde la API principal a la API mock
-2. `EventsController`: donde se reciben los eventos desde la API mock
-2. `SearchController`: donde se inicia la consulta de disponibilidad (la lógica se encuentra en `GetAvailabilityHandler`)
-
-Requests de ejemplo
-
-```bash
-curl "localhost:3000/search?placeId=ChIJW9fXNZNTtpURV6VYAumGQOw&date=2022-08-25"
-curl "localhost:3000/search?placeId=ChIJW9fXNZNTtpURV6VYAumGQOw&date=2022-08-25"
-```
+8. Pre-fetching dinámico
+Con la finalidad de reducir la latencia. Permite cargar datos antes de que sean solicitados por el usuario.
+Se agregó prefetching en el archivo http-alquila-tu-cancha.clients.ts
+![{12BD5894-674C-4BFF-AA48-7A61F1334F86}](https://github.com/user-attachments/assets/560550c1-4e83-4bc1-9973-9a77c18a8618)
 
 
-### Entregar
-
-El método de entrega es a través de un pull request a este repositorio.
-
-1. [Hacer un fork](https://help.github.com/articles/fork-a-repo/) de este repositorio
-2. [Crear un pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/)
-3. En la descripción del pull request se aprecia documentar decisiones, investigaciones, supociones o iteraciones futuras
-
-Las consultas se pueden hacer por privado o creando un issue en este repositorio
 
 
-Qué vamos a evaluar? La idea es que este desafío se asemeje lo máximo posible a una tarea del día a día, por eso proveemos un proyecto con una aplicación ya configurada y lista para modificar. Esto significa que
 
-- Se espera que se agreguen tests que comprueben el correcto funcionamiento de lo desarrollado
-- Se espera que se entienda y se respete la arquitectura de la aplicación
-- Si se decide investigar técnicas y/o patrones para resolver este problema, está perfecto y nos gustaría saber los links consultados
-- Son bienvenidas las consultas, como en cualquier equipo resolvemos las cosas juntos
-- En caso de falta de tiempo, se valora la priorización para atacar lo más importante y documentar lo que faltaría
-
-
-## Reglas y tips
-
-- No se puede modificar la API mock para resolver el desafío
-- Asumir que sólo se recibirán consultas para fechas dentro de los próximos 7 días
-- Asumir que la API mock puede estar caída en todo momento
-- Es preferible devolver resultados desactualizados que no devolver nada
-- Se puede modificar el `docker-compose.yml` para agregar cualquier dependencia que se necesite
-- No hace falta implementar lógica de disponibilidad al reaccionar a los eventos, siempre se puede consultar la disponibilidad actualizada a la API mock por cancha y fecha 
-- A modo de comprobación hay un endpoint en la API mock (`/test?placeId&date`) que devuelve la disponibilidad como debería ser devuelta por la API principal
-- No se puede usar el endpoint de test de la API mock para resolver el desafío

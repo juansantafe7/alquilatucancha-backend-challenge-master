@@ -1,17 +1,28 @@
+<<<<<<< HEAD
+=======
+/* eslint-disable */
+
+>>>>>>> upstream/main
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+<<<<<<< HEAD
 import { AppModule } from './app.module';
 import { ALQUILA_TU_CANCHA_CLIENT } from './domain/ports/aquila-tu-cancha.client'; // Token del cliente
 import * as fs from 'fs';
+=======
+
+import { AppModule } from './app.module';
+>>>>>>> upstream/main
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+<<<<<<< HEAD
 
   // Habilitar CORS para Fastify
   app.enableCors({
@@ -41,5 +52,10 @@ async function bootstrap() {
   }
 
   await app.listen(3000, '0.0.0.0');
+=======
+  await app.listen(3000, '0.0.0.0');
+
+
+>>>>>>> upstream/main
 }
 bootstrap();
